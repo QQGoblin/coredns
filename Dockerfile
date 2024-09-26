@@ -3,7 +3,11 @@ ARG BASE=gcr.io/distroless/static-debian11:nonroot
 FROM --platform=$BUILDPLATFORM ${DEBIAN_IMAGE} AS build
 SHELL [ "/bin/sh", "-ec" ]
 
-RUN export DEBCONF_NONINTERACTIVE_SEEN=true \
+ARG HTTPS_PROXY_ARGS
+ARG HTTP_PROXY_ARGS
+RUN echo "Acquire::http::Proxy \"$HTTP_PROXY_ARGS\";" > /etc/apt/apt.conf.d/proxy.conf ; \
+    echo "Acquire::https::Proxy \"$HTTPS_PROXY_ARGS\";" >> /etc/apt/apt.conf.d/proxy.conf ; \
+    export DEBCONF_NONINTERACTIVE_SEEN=true \
            DEBIAN_FRONTEND=noninteractive \
            DEBIAN_PRIORITY=critical \
            TERM=linux ; \
