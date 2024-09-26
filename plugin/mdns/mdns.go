@@ -156,7 +156,7 @@ func (m *MDNS) BrowseMDNS() {
 	if err != nil {
 		log.Errorf("Failed to find interface for '%s'\n", m.bindIface)
 	} else {
-		log.Infof("Bind to interface '%s'\n", foundIface.Name)
+		log.Debugf("Bind to interface '%s'\n", foundIface.Name)
 		iface = *foundIface
 	}
 	_ = queryService("_workstation._tcp", entriesCh, iface, ZeroconfImpl{})
