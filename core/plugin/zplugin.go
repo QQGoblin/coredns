@@ -36,6 +36,7 @@ import (
 	_ "github.com/coredns/coredns/plugin/local"
 	_ "github.com/coredns/coredns/plugin/log"
 	_ "github.com/coredns/coredns/plugin/loop"
+	_ "github.com/coredns/coredns/plugin/mdns"
 	_ "github.com/coredns/coredns/plugin/metadata"
 	_ "github.com/coredns/coredns/plugin/metrics"
 	_ "github.com/coredns/coredns/plugin/minimal"
