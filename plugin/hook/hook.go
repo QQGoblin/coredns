@@ -42,7 +42,8 @@ func override(resolveConfig string, injectServers []string) error {
 	}
 
 	if err = dnsConfig.Writer(resolveConfig); err != nil {
-		log.Errorf("Could not write dns nameserver in the file", "path", resolveConfig)
+		log.Errorf("Could not write dns nameserver in the file<%s>: %v", resolveConfig, err)
+		return err
 	}
 	return nil
 }
