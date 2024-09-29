@@ -24,6 +24,7 @@ var Directives = []string{
 	"trace",
 	"ready",
 	"health",
+	"hook",
 	"pprof",
 	"prometheus",
 	"errors",
