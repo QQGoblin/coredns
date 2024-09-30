@@ -1,6 +1,7 @@
 package mdns
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ func setup(c *caddy.Controller) error {
 	c.Next()
 	c.NextArg()
 	domain := c.Val()
+	publicName := defaultPublicName()
 	// Note that a filter of "" will match everything
 	filter := ""
 	bindInface := ""
@@ -31,6 +33,9 @@ func setup(c *caddy.Controller) error {
 	}
 	if c.NextArg() {
 		bindInface = c.Val()
+	}
+	if c.NextArg() {
+		publicName = c.Val()
 	}
 	if c.NextArg() {
 		return plugin.Error("mdns", c.ArgErr())
@@ -42,8 +47,15 @@ func setup(c *caddy.Controller) error {
 	mutex := sync.RWMutex{}
 
 	m := MDNS{Domain: strings.TrimSuffix(domain, "."), filter: filter, bindIface: bindInface, mutex: &mutex, mdnsHosts: &mdnsHosts}
+
 	c.OnStartup(func() error {
 		go browseLoop(&m)
+
+		go func() {
+			if err := publicHostname(context.TODO(), filter, publicName, domain, bindInface); err != nil {
+				log.Errorf("start public hostname failed: %v", err)
+			}
+		}()
 		return nil
 	})
 
