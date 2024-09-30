@@ -24,13 +24,10 @@ var log = clog.NewWithPlugin("mdns")
 type MDNS struct {
 	Next      plugin.Handler
 	Domain    string
-	minSRV    int
 	filter    string
 	bindIface string
 	mutex     *sync.RWMutex
 	mdnsHosts *map[string]*zeroconf.ServiceEntry
-	srvHosts  *map[string][]*zeroconf.ServiceEntry
-	cnames    *map[string]string
 }
 
 func (m MDNS) ReplaceDomain(input string) string {
@@ -48,25 +45,18 @@ func (m MDNS) AddARecord(msg *dns.Msg, state *request.Request, hosts map[string]
 	// provides common code for doing so.
 	answerEntry, present := hosts[name]
 	if present {
-		if answerEntry.AddrIPv4 != nil {
+		if answerEntry.AddrIPv4 != nil && state.QType() == dns.TypeA {
 			aheader := dns.RR_Header{Name: name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60}
 			// TODO: Support multiple addresses
 			msg.Answer = append(msg.Answer, &dns.A{Hdr: aheader, A: answerEntry.AddrIPv4[0]})
 		}
-		if answerEntry.AddrIPv6 != nil {
+		if answerEntry.AddrIPv6 != nil && state.QType() == dns.TypeAAAA {
 			aaaaheader := dns.RR_Header{Name: name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: 60}
 			msg.Answer = append(msg.Answer, &dns.AAAA{Hdr: aaaaheader, AAAA: answerEntry.AddrIPv6[0]})
 		}
 		return true
 	}
 	return false
-}
-
-// Return the node index from a hostname.
-// For example, the return value from "master-0.ostest.test.metal3.io" would be "0"
-func GetIndex(host string) string {
-	shortname := strings.Split(host, ".")[0]
-	return shortname[strings.LastIndex(shortname, "-")+1:]
 }
 
 func (m MDNS) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
@@ -80,8 +70,6 @@ func (m MDNS) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (i
 	log.Debugf("Looking for name: %s", state.QName())
 	// Just for convenience so we don't have to keep dereferencing these
 	mdnsHosts := *m.mdnsHosts
-	srvHosts := *m.srvHosts
-	cnames := *m.cnames
 
 	if !strings.HasSuffix(state.QName(), m.Domain+".") {
 		log.Debugf("Skipping due to query '%s' not in our domain '%s'", state.QName(), m.Domain)
@@ -90,7 +78,8 @@ func (m MDNS) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (i
 
 	if state.QType() != dns.TypeA && state.QType() != dns.TypeAAAA && state.QType() != dns.TypeSRV && state.QType() != dns.TypeCNAME {
 		log.Debugf("Skipping due to unrecognized query type %v", state.QType())
-		return plugin.NextOrFailure(m.Name(), m.Next, ctx, w, r)
+		//return plugin.NextOrFailure(m.Name(), m.Next, ctx, w, r)
+		return dns.RcodeServerFailure, nil
 	}
 
 	msg.Answer = []dns.RR{}
@@ -104,28 +93,8 @@ func (m MDNS) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (i
 		return dns.RcodeSuccess, nil
 	}
 
-	cnameTarget, present := cnames[state.Name()]
-	if present {
-		cnameheader := dns.RR_Header{Name: state.QName(), Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: 0}
-		msg.Answer = append(msg.Answer, &dns.CNAME{Hdr: cnameheader, Target: cnameTarget})
-		m.AddARecord(msg, &state, mdnsHosts, cnameTarget)
-		log.Debug(msg)
-		w.WriteMsg(msg)
-		return dns.RcodeSuccess, nil
-	}
-
-	srvEntry, present := srvHosts[state.Name()]
-	if present {
-		srvheader := dns.RR_Header{Name: state.QName(), Rrtype: dns.TypeSRV, Class: dns.ClassINET, Ttl: 0}
-		for _, host := range srvEntry {
-			msg.Answer = append(msg.Answer, &dns.SRV{Hdr: srvheader, Target: host.HostName, Priority: 0, Weight: 10, Port: uint16(host.Port)})
-		}
-		log.Debug(msg)
-		w.WriteMsg(msg)
-		return dns.RcodeSuccess, nil
-	}
 	log.Debugf("No records found for '%s', forwarding to next plugin.", state.QName())
-	return plugin.NextOrFailure(m.Name(), m.Next, ctx, w, r)
+	return dns.RcodeServerFailure, nil
 }
 
 func (m *MDNS) BrowseMDNS() {
@@ -188,6 +157,7 @@ func queryService(service string, channel chan *zeroconf.ServiceEntry, iface net
 	if iface.Name != "" {
 		opts = zeroconf.SelectIfaces([]net.Interface{iface})
 	}
+
 	resolver, err := z.NewResolver(opts)
 	if err != nil {
 		log.Errorf("Failed to initialize %s resolver: %s", service, err.Error())
@@ -195,6 +165,8 @@ func queryService(service string, channel chan *zeroconf.ServiceEntry, iface net
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
+	// 	github.com/celebdor/zeroconf 支持 periodicQuery 函数持久发送 mDNS 请求。
+	//	这里将超时时间设置为 1s, 实际上 periodicQuery 永远不会运行，每次运行 Browse 只会发送一个 mDNS 包
 	err = resolver.Browse(ctx, service, "local.", channel)
 	if err != nil {
 		log.Errorf("Failed to browse %s records: %s", service, err.Error())
@@ -208,10 +180,6 @@ func (m MDNS) Name() string { return "mdns" }
 
 type ResponsePrinter struct {
 	dns.ResponseWriter
-}
-
-func NewResponsePrinter(w dns.ResponseWriter) *ResponsePrinter {
-	return &ResponsePrinter{ResponseWriter: w}
 }
 
 func (r *ResponsePrinter) WriteMsg(res *dns.Msg) error {

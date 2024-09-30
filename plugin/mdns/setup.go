@@ -1,9 +1,6 @@
 package mdns
 
 import (
-	"errors"
-	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,18 +23,9 @@ func setup(c *caddy.Controller) error {
 	c.Next()
 	c.NextArg()
 	domain := c.Val()
-	minSRV := 3
 	// Note that a filter of "" will match everything
 	filter := ""
 	bindInface := ""
-	if c.NextArg() {
-		val, err := strconv.Atoi(c.Val())
-		if err != nil {
-			text := fmt.Sprintf("Invalid minSRV: %s", err)
-			return plugin.Error("mdns", errors.New(text))
-		}
-		minSRV = val
-	}
 	if c.NextArg() {
 		filter = c.Val()
 	}
@@ -51,11 +39,9 @@ func setup(c *caddy.Controller) error {
 	// Because the plugin interface uses a value receiver, we need to make these
 	// pointers so all copies of the plugin point at the same maps.
 	mdnsHosts := make(map[string]*zeroconf.ServiceEntry)
-	srvHosts := make(map[string][]*zeroconf.ServiceEntry)
-	cnames := make(map[string]string)
 	mutex := sync.RWMutex{}
-	m := MDNS{Domain: strings.TrimSuffix(domain, "."), minSRV: minSRV, filter: filter, bindIface: bindInface, mutex: &mutex, mdnsHosts: &mdnsHosts, srvHosts: &srvHosts, cnames: &cnames}
 
+	m := MDNS{Domain: strings.TrimSuffix(domain, "."), filter: filter, bindIface: bindInface, mutex: &mutex, mdnsHosts: &mdnsHosts}
 	c.OnStartup(func() error {
 		go browseLoop(&m)
 		return nil
